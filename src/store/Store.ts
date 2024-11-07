@@ -5,7 +5,40 @@ import anime, { get } from 'animejs';
 import { MenuOption, EditorElement, Animation, TimeFrame, VideoEditorElement, AudioEditorElement, Placement, ImageEditorElement, Effect, TextEditorElement } from '../types';
 import { FabricUitls } from '@/utils/fabric-utils';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { toBlobURL } from '@ffmpeg/util';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { getClipTopic } from '@/utils/gpt-utils';
+
+interface VideoResource {
+  url: string;
+  fileName: string;
+  size?: number;
+  dateAdded?: number;
+  duration?: number;
+}
+
+interface ResourceMetadata {
+  size: number;
+  dateAdded: number;
+  duration?: number;
+}
+
+interface MediaResource extends VideoResource {
+  size: number;
+  dateAdded: number;
+}
+
+interface VideoGroup {
+  id: string;
+  name: string;
+  videos: string[];
+}
+
+interface Timeline {
+  id: string;
+  name: string;
+  elements: EditorElement[];
+  duration: number;
+}
 
 export class Store {
   canvas: fabric.Canvas | null
@@ -13,9 +46,9 @@ export class Store {
   backgroundColor: string;
 
   selectedMenuOption: MenuOption;
-  audios: string[]
-  videos: string[]
-  images: string[]
+  audios: MediaResource[]
+  videos: MediaResource[]
+  images: MediaResource[]
   editorElements: EditorElement[]
   selectedElement: EditorElement | null;
 
@@ -30,6 +63,11 @@ export class Store {
   possibleVideoFormats: string[] = ['mp4', 'webm'];
   selectedVideoFormat: 'mp4' | 'webm';
 
+  videoGroups: VideoGroup[];
+
+  timelines: Timeline[];
+  activeTimelineId: string | null;
+
   constructor() {
     this.canvas = null;
     this.videos = [];
@@ -37,7 +75,7 @@ export class Store {
     this.audios = [];
     this.editorElements = [];
     this.backgroundColor = '#111111';
-    this.maxTime = 30 * 1000;
+    this.maxTime = 0;
     this.playing = false;
     this.currentKeyFrame = 0;
     this.selectedElement = null;
@@ -46,36 +84,42 @@ export class Store {
     this.animationTimeLine = anime.timeline();
     this.selectedMenuOption = 'Video';
     this.selectedVideoFormat = 'mp4';
+    this.videoGroups = [];
+    this.possibleVideoFormats = ['mp4', 'webm'];
+    this.timelines = [];
+    this.activeTimelineId = null;
     makeAutoObservable(this);
   }
+
+    // AI Features
 
   get currentTimeInMs() {
     return this.currentKeyFrame * 1000 / this.fps;
   }
 
-  setCurrentTimeInMs(time: number) {
+  setCurrentTimeInMs = (time: number) => {
     this.currentKeyFrame = Math.floor(time / 1000 * this.fps);
   }
 
-  setSelectedMenuOption(selectedMenuOption: MenuOption) {
+  setSelectedMenuOption = (selectedMenuOption: MenuOption) => {
     this.selectedMenuOption = selectedMenuOption;
   }
 
-  setCanvas(canvas: fabric.Canvas | null) {
+  setCanvas = (canvas: fabric.Canvas | null) => {
     this.canvas = canvas;
     if (canvas) {
       canvas.backgroundColor = this.backgroundColor;
     }
   }
 
-  setBackgroundColor(backgroundColor: string) {
+  setBackgroundColor = (backgroundColor: string) => {
     this.backgroundColor = backgroundColor;
     if (this.canvas) {
       this.canvas.backgroundColor = backgroundColor;
     }
   }
 
-  updateEffect(id: string, effect: Effect) {
+  updateEffect = (id: string, effect: Effect) => {
     const index = this.editorElements.findIndex((element) => element.id === id);
     const element = this.editorElements[index];
     if (isEditorVideoElement(element) || isEditorImageElement(element)) {
@@ -84,31 +128,55 @@ export class Store {
     this.refreshElements();
   }
 
-  setVideos(videos: string[]) {
-    this.videos = videos;
+  setVideos = (videos: VideoResource[]) => {
+    this.videos = videos.map(video => ({
+        ...video,
+        size: video.size ?? 0,
+        dateAdded: video.dateAdded ?? Date.now()
+    }));
   }
 
-  addVideoResource(video: string) {
-    this.videos = [...this.videos, video];
-  }
-  addAudioResource(audio: string) {
-    this.audios = [...this.audios, audio];
-  }
-  addImageResource(image: string) {
-    this.images = [...this.images, image];
+  addVideoResource = (url: string, fileName: string, metadata: ResourceMetadata) => {
+    this.videos.push({
+      url,
+      fileName,
+      size: metadata.size,
+      dateAdded: metadata.dateAdded,
+      duration: metadata.duration
+    });
   }
 
-  addAnimation(animation: Animation) {
+  addImageResource = (url: string, fileName: string, metadata: ResourceMetadata) => {
+    this.images.push({
+      url,
+      fileName,
+      size: metadata.size,
+      dateAdded: metadata.dateAdded
+    });
+  }
+
+  addAudioResource = (url: string, fileName: string, metadata: ResourceMetadata) => {
+    this.audios.push({
+      url,
+      fileName,
+      size: metadata.size,
+      dateAdded: metadata.dateAdded,
+      duration: metadata.duration
+    });
+  }
+
+  addAnimation = (animation: Animation) => {
     this.animations = [...this.animations, animation];
     this.refreshAnimations();
   }
-  updateAnimation(id: string, animation: Animation) {
+
+  updateAnimation = (id: string, animation: Animation) => {
     const index = this.animations.findIndex((a) => a.id === id);
     this.animations[index] = animation;
     this.refreshAnimations();
   }
 
-  refreshAnimations() {
+  refreshAnimations = () => {
     anime.remove(this.animationTimeLine);
     this.animationTimeLine = anime.timeline({
       duration: this.maxTime,
@@ -276,14 +344,14 @@ export class Store {
     }
   }
 
-  removeAnimation(id: string) {
+  removeAnimation = (id: string) => {
     this.animations = this.animations.filter(
       (animation) => animation.id !== id
     );
     this.refreshAnimations();
   }
 
-  setSelectedElement(selectedElement: EditorElement | null) {
+  setSelectedElement = (selectedElement: EditorElement | null) => {
     this.selectedElement = selectedElement;
     if (this.canvas) {
       if (selectedElement?.fabricObject)
@@ -292,24 +360,25 @@ export class Store {
         this.canvas.discardActiveObject();
     }
   }
-  updateSelectedElement() {
+
+  updateSelectedElement = () => {
     this.selectedElement = this.editorElements.find((element) => element.id === this.selectedElement?.id) ?? null;
   }
 
-  setEditorElements(editorElements: EditorElement[]) {
+  setEditorElements = (editorElements: EditorElement[]) => {
     this.editorElements = editorElements;
     this.updateSelectedElement();
     this.refreshElements();
     // this.refreshAnimations();
   }
 
-  updateEditorElement(editorElement: EditorElement) {
+  updateEditorElement = (editorElement: EditorElement) => {
     this.setEditorElements(this.editorElements.map((element) =>
       element.id === editorElement.id ? editorElement : element
     ));
   }
 
-  updateEditorElementTimeFrame(editorElement: EditorElement, timeFrame: Partial<TimeFrame>) {
+  updateEditorElementTimeFrame = (editorElement: EditorElement, timeFrame: Partial<TimeFrame>) => {
     if (timeFrame.start != undefined && timeFrame.start < 0) {
       timeFrame.start = 0;
     }
@@ -330,25 +399,37 @@ export class Store {
   }
 
 
-  addEditorElement(editorElement: EditorElement) {
-    this.setEditorElements([...this.editorElements, editorElement]);
-    this.refreshElements();
-    this.setSelectedElement(this.editorElements[this.editorElements.length - 1]);
+  addEditorElement = (editorElement: EditorElement) => {
+    if (!this.activeTimelineId) {
+      this.createTimeline("Timeline 1");
+    }
+    
+    const timeline = this.timelines.find(t => t.id === this.activeTimelineId);
+    if (timeline) {
+      timeline.elements.push(editorElement);
+      this.editorElements = timeline.elements;
+      this.refreshElements();
+      this.setSelectedElement(this.editorElements[this.editorElements.length - 1]);
+    }
   }
 
-  removeEditorElement(id: string) {
+  removeEditorElement = (id: string) => {
     this.setEditorElements(this.editorElements.filter(
       (editorElement) => editorElement.id !== id
     ));
     this.refreshElements();
   }
 
-  setMaxTime(maxTime: number) {
-    this.maxTime = maxTime;
+  setMaxTime = (maxTime: number) => {
+    const maxEndTime = Math.max(
+      maxTime,
+      ...this.editorElements.map(element => element.timeFrame.end)
+    );
+    this.maxTime = maxEndTime;
   }
 
 
-  setPlaying(playing: boolean) {
+  setPlaying = (playing: boolean) => {
     this.playing = playing;
     this.updateVideoElements();
     this.updateAudioElements();
@@ -364,23 +445,29 @@ export class Store {
   startedTime = 0;
   startedTimePlay = 0;
 
-  playFrames() {
+  playFrames = () => {
     if (!this.playing) {
       return;
     }
     const elapsedTime = Date.now() - this.startedTime;
     const newTime = this.startedTimePlay + elapsedTime;
-    this.updateTimeTo(newTime);
-    if (newTime > this.maxTime) {
+    
+    // Loop back to start if we reach the end
+    if (newTime >= this.maxTime) {
       this.currentKeyFrame = 0;
-      this.setPlaying(false);
+      this.startedTime = Date.now();
+      this.startedTimePlay = 0;
+      this.updateTimeTo(0);
     } else {
-      requestAnimationFrame(() => {
-        this.playFrames();
-      });
+      this.updateTimeTo(newTime);
     }
+    
+    requestAnimationFrame(() => {
+      this.playFrames();
+    });
   }
-  updateTimeTo(newTime: number) {
+
+  updateTimeTo = (newTime: number) => {
     this.setCurrentTimeInMs(newTime);
     this.animationTimeLine.seek(newTime);
     if (this.canvas) {
@@ -395,7 +482,7 @@ export class Store {
     )
   }
 
-  handleSeek(seek: number) {
+  handleSeek = (seek: number) => {
     if (this.playing) {
       this.setPlaying(false);
     }
@@ -404,54 +491,72 @@ export class Store {
     this.updateAudioElements();
   }
 
-  addVideo(index: number) {
+  addVideo = (index: number) => {
     const videoElement = document.getElementById(`video-${index}`)
     if (!isHtmlVideoElement(videoElement)) {
       return;
     }
-    const videoDurationMs = videoElement.duration * 1000;
+
+    // Wait for video metadata to load
+    if (!videoElement.duration) {
+      videoElement.addEventListener('loadedmetadata', () => this.addVideo(index));
+      return;
+    }
+
+    const videoDurationMs = Math.round(videoElement.duration * 1000);
+    
+    // Set maxTime to video duration
+    this.maxTime = videoDurationMs;
+
     const aspectRatio = videoElement.videoWidth / videoElement.videoHeight;
     const id = getUid();
-    this.addEditorElement(
-      {
-        id,
-        name: `Media(video) ${index + 1}`,
-        type: "video",
-        placement: {
-          x: 0,
-          y: 0,
-          width: 100 * aspectRatio,
-          height: 100,
-          rotation: 0,
-          scaleX: 1,
-          scaleY: 1,
-        },
-        timeFrame: {
-          start: 0,
-          end: videoDurationMs,
-        },
-        properties: {
-          elementId: `video-${id}`,
-          src: videoElement.src,
-          effect: {
-            type: "none",
-          }
-        },
+
+    const videoResource = this.videos[index];
+    const videoName = videoResource?.fileName || `Video ${index + 1}`;
+
+    this.addEditorElement({
+      id,
+      name: videoName,
+      type: "video",
+      placement: {
+        x: 0,
+        y: 0,
+        width: 100 * aspectRatio,
+        height: 100,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
       },
-    );
+      timeFrame: {
+        start: 0,
+        end: videoDurationMs,
+      },
+      properties: {
+        elementId: `video-${id}`,
+        src: videoElement.src,
+        effect: {
+          type: "none",
+        }
+      },
+    });
   }
 
-  addImage(index: number) {
+  addImage = (index: number) => {
     const imageElement = document.getElementById(`image-${index}`)
     if (!isHtmlImageElement(imageElement)) {
       return;
     }
     const aspectRatio = imageElement.naturalWidth / imageElement.naturalHeight;
     const id = getUid();
+
+    // Get the image resource to access the real filename
+    const imageResource = this.images[index];
+    const imageName = imageResource?.fileName || `Image ${index + 1}`;
+
     this.addEditorElement(
       {
         id,
-        name: `Media(image) ${index + 1}`,
+        name: imageName,
         type: "image",
         placement: {
           x: 0,
@@ -477,17 +582,22 @@ export class Store {
     );
   }
 
-  addAudio(index: number) {
+  addAudio = (index: number) => {
     const audioElement = document.getElementById(`audio-${index}`)
     if (!isHtmlAudioElement(audioElement)) {
       return;
     }
     const audioDurationMs = audioElement.duration * 1000;
     const id = getUid();
+
+    // Get the audio resource to access the real filename
+    const audioResource = this.audios[index];
+    const audioName = audioResource?.fileName || `Audio ${index + 1}`;
+
     this.addEditorElement(
       {
         id,
-        name: `Media(audio) ${index + 1}`,
+        name: audioName,
         type: "audio",
         placement: {
           x: 0,
@@ -508,13 +618,13 @@ export class Store {
         }
       },
     );
-
   }
-  addText(options: {
+
+  addText = (options: {
     text: string,
     fontSize: number,
     fontWeight: number,
-  }) {
+  }) => {
     const id = getUid();
     const index = this.editorElements.length;
     this.addEditorElement(
@@ -545,7 +655,7 @@ export class Store {
     );
   }
 
-  updateVideoElements() {
+  updateVideoElements = () => {
     this.editorElements.filter(
       (element): element is VideoEditorElement =>
         element.type === "video"
@@ -563,7 +673,8 @@ export class Store {
         }
       })
   }
-  updateAudioElements() {
+
+  updateAudioElements = () => {
     this.editorElements.filter(
       (element): element is AudioEditorElement =>
         element.type === "audio"
@@ -581,43 +692,16 @@ export class Store {
         }
       })
   }
-  // saveCanvasToVideo() {
-  //   const video = document.createElement("video");
-  //   const canvas = document.getElementById("canvas") as HTMLCanvasElement;
-  //   const stream = canvas.captureStream();
-  //   video.srcObject = stream;
-  //   video.play();
-  //   const mediaRecorder = new MediaRecorder(stream);
-  //   const chunks: Blob[] = [];
-  //   mediaRecorder.ondataavailable = function (e) {
-  //     console.log("data available");
-  //     console.log(e.data);
-  //     chunks.push(e.data);
-  //   };
-  //   mediaRecorder.onstop = function (e) {
-  //     const blob = new Blob(chunks, { type: "video/webm" });
-  //     const url = URL.createObjectURL(blob);
-  //     const a = document.createElement("a");
-  //     a.href = url;
-  //     a.download = "video.webm";
-  //     a.click();
-  //   };
-  //   mediaRecorder.start();
-  //   setTimeout(() => {
-  //     mediaRecorder.stop();
-  //   }, this.maxTime);
 
-  // }
-
-  setVideoFormat(format: 'mp4' | 'webm') {
+  setVideoFormat = (format: 'mp4' | 'webm') => {
     this.selectedVideoFormat = format;
   }
 
-  saveCanvasToVideoWithAudio() {
+  saveCanvasToVideoWithAudio = () => {
     this.saveCanvasToVideoWithAudioWebmMp4();
   }
 
-  saveCanvasToVideoWithAudioWebmMp4() {
+  saveCanvasToVideoWithAudioWebmMp4 = () => {
     console.log('modified')
     let mp4 = this.selectedVideoFormat === 'mp4'
     const canvas = document.getElementById("canvas") as HTMLCanvasElement;
@@ -691,7 +775,7 @@ export class Store {
     })
   }
 
-  refreshElements() {
+  refreshElements = () => {
     const store = this;
     if (!store.canvas) return;
     const canvas = store.canvas;
@@ -707,60 +791,36 @@ export class Store {
             element.properties.elementId
           );
           if (!isHtmlVideoElement(videoElement)) continue;
-          // const filters = [];
-          // if (element.properties.effect?.type === "blackAndWhite") {
-          //   filters.push(new fabric.Image.filters.Grayscale());
-          // }
+          
           const videoObject = new fabric.CoverVideo(videoElement, {
             name: element.id,
-            left: element.placement.x,
-            top: element.placement.y,
-            width: element.placement.width,
-            height: element.placement.height,
-            scaleX: element.placement.scaleX,
-            scaleY: element.placement.scaleY,
-            angle: element.placement.rotation,
-            objectCaching: false,
-            selectable: true,
-            lockUniScaling: true,
-            // filters: filters,
+            left: 0,
+            top: 0,
+            width: canvas.width ?? 800,
+            height: canvas.height ?? 500,
+            selectable: false,
+            evented: false,
+            lockMovementX: true,
+            lockMovementY: true,
+            lockRotation: true,
+            lockScalingX: true,
+            lockScalingY: true,
+            hasControls: false,
+            hasBorders: false,
             // @ts-ignore
             customFilter: element.properties.effect.type,
           });
 
           element.fabricObject = videoObject;
           element.properties.imageObject = videoObject;
-          videoElement.width = 100;
-          videoElement.height =
-            (videoElement.videoHeight * 100) / videoElement.videoWidth;
+          
+          if (canvas.width) videoElement.width = canvas.width;
+          if (canvas.height) videoElement.height = canvas.height;
+          
           canvas.add(videoObject);
-          canvas.on("object:modified", function (e) {
-            if (!e.target) return;
-            const target = e.target;
-            if (target != videoObject) return;
-            const placement = element.placement;
-            const newPlacement: Placement = {
-              ...placement,
-              x: target.left ?? placement.x,
-              y: target.top ?? placement.y,
-              rotation: target.angle ?? placement.rotation,
-              width:
-                target.width && target.scaleX
-                  ? target.width * target.scaleX
-                  : placement.width,
-              height:
-                target.height && target.scaleY
-                  ? target.height * target.scaleY
-                  : placement.height,
-              scaleX: 1,
-              scaleY: 1,
-            };
-            const newElement = {
-              ...element,
-              placement: newPlacement,
-            };
-            store.updateEditorElement(newElement);
-          });
+          
+          videoObject.center();
+          canvas.renderAll();
           break;
         }
         case "image": {
@@ -901,7 +961,319 @@ export class Store {
     store.canvas.renderAll();
   }
 
-}
+  async sortClipsByTopic() {
+    const topicsMap: Record<string, EditorElement[]> = {};
+
+    for (const element of this.editorElements) {
+      if (element.type === "video") {
+        const topic = await getClipTopic([element.properties.src]);
+        if (!topicsMap[topic]) {
+          topicsMap[topic] = [];
+        }
+        topicsMap[topic].push(element);
+      }
+    }
+
+    this.editorElements = Object.values(topicsMap).flat();
+  }
+
+  async generateGroupName(videos: string[]): Promise<string> {
+    try {
+      // Get the stored file names and ensure it's valid
+      const storedFileNames = JSON.parse(window.sessionStorage.getItem('uploadedFileNames') || '[]');
+      console.log('Using stored file names:', storedFileNames);
+      
+      // Check if we have valid file names
+      if (!Array.isArray(storedFileNames) || storedFileNames.length === 0) {
+        console.log('No valid file names found');
+        return "Untitled Group";
+      }
+      
+      // Clean up file names (remove any invalid entries)
+      const validFileNames = storedFileNames.filter(name => typeof name === 'string' && name.length > 0);
+      
+      if (validFileNames.length === 0) {
+        console.log('No valid file names after filtering');
+        return "Untitled Group";
+      }
+      
+      const topic = await getClipTopic(validFileNames);
+      return topic || "Untitled Group";
+    } catch (error) {
+      console.log("Error in generateGroupName:", error);
+      return "Untitled Group";
+    }
+  }
+
+  async groupVideos() {
+    const ungroupedVideos = [...this.videos];
+    const newGroups: VideoGroup[] = [];
+    
+    while (ungroupedVideos.length > 0) {
+      const currentVideo = ungroupedVideos[0];
+      const similarVideos = [currentVideo];
+      
+      // Find similar videos based on name
+      for (let i = 1; i < ungroupedVideos.length; i++) {
+        const video = ungroupedVideos[i];
+        const currentName = currentVideo.fileName;
+        const compareName = video.fileName;
+        
+        // Simple similarity check - can be improved
+        if (currentName.toLowerCase().includes(compareName.toLowerCase()) || 
+            compareName.toLowerCase().includes(currentName.toLowerCase())) {
+          similarVideos.push(video);
+          ungroupedVideos.splice(i, 1);
+          i--;
+        }
+      }
+      
+      // Remove the current video from ungrouped
+      ungroupedVideos.shift();
+      
+      // Create new group
+      let groupName;
+      try {
+        groupName = await this.generateGroupName(similarVideos.map(v => v.fileName));
+      } catch (error) {
+        console.error("Error generating group name:", error);
+        groupName = "Untitled Group";
+      }
+      
+      newGroups.push({
+        id: getUid(),
+        name: groupName,
+        videos: similarVideos.map(v=>v.fileName)
+      });
+    }
+    
+    this.videoGroups = newGroups;
+  }
+
+  setSortedImages(images: MediaResource[]): void {
+    this.images = images;
+  }
+
+  setSortedVideos(videos: MediaResource[]): void {
+    this.videos = videos;
+  }
+
+  setSortedAudios(audios: MediaResource[]): void {
+    this.audios = audios;
+  }
+
+  cleanupResources(): void {
+    [...this.videos, ...this.images, ...this.audios].forEach(resource => {
+      if (resource.url.startsWith('blob:')) {
+        URL.revokeObjectURL(resource.url);
+      }
+    });
+  }
+
+  createTimeline(name: string) {
+    const timeline: Timeline = {
+      id: getUid(),
+      name,
+      elements: [],
+      duration: this.maxTime  // Use current maxTime
+    };
+    this.timelines.push(timeline);
+    if (!this.activeTimelineId) {
+      this.setActiveTimeline(timeline.id);
+    }
+  }
+
+  setActiveTimeline(timelineId: string) {
+    this.activeTimelineId = timelineId;
+    const timeline = this.timelines.find(t => t.id === timelineId);
+    if (timeline) {
+      this.editorElements = timeline.elements;
+      // Update maxTime based on the longest element in the timeline
+      const maxEndTime = Math.max(
+        ...timeline.elements.map(e => e.timeFrame.end),
+        timeline.duration
+      );
+      this.maxTime = maxEndTime;
+      this.refreshElements();
+    }
+  }
+
+  splitElementAtTime(elementId: string, timeMs: number) {
+    const element = this.editorElements.find(e => e.id === elementId);
+    if (!element) return;
+
+    // Don't split if time is outside element bounds
+    if (timeMs <= element.timeFrame.start || timeMs >= element.timeFrame.end) return;
+
+    // Find the index of the original element
+    const elementIndex = this.editorElements.findIndex(e => e.id === elementId);
+
+    // Create new element as a copy of the original
+    const newElement: EditorElement = {
+      ...element,
+      id: getUid(),
+      name: `${element.name} (split)`,
+      timeFrame: {
+        start: timeMs,
+        end: element.timeFrame.end
+      }
+    };
+
+    // Adjust original element end time
+    element.timeFrame.end = timeMs;
+
+    // Insert the new element right after the original element
+    this.editorElements.splice(elementIndex + 1, 0, newElement);
+    
+    // Refresh the view
+    this.refreshElements();
+    this.refreshAnimations();
+  }
+
+  mergeElements(elementIds: string[]) {
+    if (elementIds.length < 2) return;
+
+    const elements = elementIds
+      .map(id => this.editorElements.find(e => e.id === id))
+      .filter((e): e is EditorElement => e !== undefined)
+      .sort((a, b) => a.timeFrame.start - b.timeFrame.start);
+
+    // Check if elements are consecutive and of same type
+    for (let i = 1; i < elements.length; i++) {
+      if (elements[i].timeFrame.start !== elements[i-1].timeFrame.end ||
+          elements[i].type !== elements[i-1].type) {
+        return;
+      }
+    }
+
+    // Create merged element
+    const mergedElement: EditorElement = {
+      ...elements[0],
+      id: getUid(),
+      name: `${elements[0].name} (merged)`,
+      timeFrame: {
+        start: elements[0].timeFrame.start,
+        end: elements[elements.length - 1].timeFrame.end
+      }
+    };
+
+    // Remove original elements and add merged one
+    this.editorElements = this.editorElements.filter(e => !elementIds.includes(e.id));
+    this.addEditorElement(mergedElement);
+  }
+
+  rippleTimelineChanges(elementId: string, timeChange: number) {
+    const elements = this.editorElements;
+    const elementIndex = elements.findIndex(e => e.id === elementId);
+    
+    if (elementIndex === -1) return;
+    
+    // Ripple edit all elements after the changed element
+    for (let i = elementIndex + 1; i < elements.length; i++) {
+      const element = elements[i];
+      this.updateEditorElementTimeFrame(element, {
+        start: element.timeFrame.start + timeChange,
+        end: element.timeFrame.end + timeChange
+      });
+    }
+  }
+
+
+  snapToNearestClip(time: number, threshold: number = 100): number {
+    const snapPoints = this.editorElements.flatMap(element => [
+      element.timeFrame.start,
+      element.timeFrame.end
+    ]);
+
+    const nearestPoint = snapPoints.reduce((nearest, point) => {
+      const distance = Math.abs(point - time);
+      if (distance < threshold && distance < Math.abs(nearest - time)) {
+        return point;
+      }
+      return nearest;
+    }, time);
+
+    return nearestPoint;
+  }
+
+  async trimVideo(videoUrl: string, startTime: number, endTime: number): Promise<string> {
+    const ffmpeg = new FFmpeg();
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.2/dist/umd";
+    
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+
+    // Download the video file
+    const videoData = await fetchFile(videoUrl);
+    await ffmpeg.writeFile('input.mp4', videoData);
+
+    // Execute the trim command
+    const duration = (endTime - startTime) / 1000; // Convert to seconds
+    await ffmpeg.exec([
+      '-ss', `${startTime / 1000}`,
+      '-i', 'input.mp4',
+      '-t', `${duration}`,
+      '-c', 'copy',
+      'output.mp4'
+    ]);
+
+    // Read the output file
+    const data = await ffmpeg.readFile('output.mp4');
+    const blob = new Blob([data], { type: 'video/mp4' });
+    return URL.createObjectURL(blob);
+  }
+
+  async trimElement(elementId: string) {
+    const element = this.editorElements.find(e => e.id === elementId);
+    if (!element || element.type !== 'video') return;
+
+    try {
+      const trimmedVideoUrl = await this.trimVideo(
+        element.properties.src,
+        element.timeFrame.start,
+        element.timeFrame.end
+      );
+
+      // Create new trimmed element
+      const newElement: VideoEditorElement = {
+        ...element,
+        id: getUid(),
+        name: `${element.name} (trimmed)`,
+        properties: {
+          ...element.properties,
+          src: trimmedVideoUrl,
+          elementId: `video-${getUid()}`
+        }
+      };
+      // Replace the original element with the trimmed one
+      this.editorElements = this.editorElements.map(e => 
+        e.id === elementId ? newElement : e
+      );
+      
+      this.refreshElements();
+    } catch (error) {
+      console.error('Error trimming video:', error);
+    }
+  }
+
+  async uncutElement(elementId: string) {
+    const element = this.editorElements.find(e => e.id === elementId);
+    if (!element || element.type !== 'video') return;
+
+    // Reset timeframe to original duration
+    const videoElement = document.getElementById(element.properties.elementId) as HTMLVideoElement;
+    if (!videoElement) return;
+
+    this.updateEditorElementTimeFrame(element, {
+      start: 0,
+      end: videoElement.duration * 1000
+    });
+  }
+
+  }
+
 
 
 export function isEditorAudioElement(

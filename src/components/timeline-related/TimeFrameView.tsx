@@ -10,76 +10,71 @@ export const TimeFrameView = observer((props: { element: EditorElement }) => {
   const { element } = props;
   const disabled = element.type === "audio";
   const isSelected = store.selectedElement?.id === element.id;
-  const bgColorOnSelected = isSelected ? "bg-slate-800" : "bg-slate-600";
+  
+  // Generate a consistent color based on the element's id
+  const getElementColor = () => {
+    if (element.name.includes('(split)')) {
+      return 'bg-gray-800'; // Dark color for split parts
+    }
+    return 'bg-amber-800'; // Brown color for original parts
+  };
+
+  const bgColorOnSelected = isSelected ? "border-2 border-indigo-600" : "";
   const disabledCursor = disabled ? "cursor-no-drop" : "cursor-ew-resize";
+
+  const [trimPreview, setTrimPreview] = React.useState<{
+    start?: number;
+    end?: number;
+  }>({});
+
+  const handleTrimPreview = (position: 'start' | 'end', value: number) => {
+    setTrimPreview(prev => ({
+      ...prev,
+      [position]: value
+    }));
+  };
+
+  const handleTrimCommit = (position: 'start' | 'end', value: number) => {
+    store.updateEditorElementTimeFrame(element, {
+      [position]: value,
+    });
+    setTrimPreview({});
+  };
 
   return (
     <div
-      onClick={() => {
-        store.setSelectedElement(element);
-      }}
-      key={element.id}
-      className={`relative width-full h-[25px] my-2 ${
-        isSelected ? "border-2 border-indigo-600 bg-slate-200" : ""
-      }`}
+      onClick={() => store.setSelectedElement(element)}
+      className={`h-full ${bgColorOnSelected}`}
     >
-      <DragableView
-        className="z-10"
-        value={element.timeFrame.start}
-        total={store.maxTime}
-        disabled={disabled}
-        onChange={(value) => {
-          store.updateEditorElementTimeFrame(element, {
-            start: value,
-          });
-        }}
-      >
-        <div
-          className={`bg-white border-2 border-blue-400 w-[10px] h-[10px] mt-[calc(25px/2)] translate-y-[-50%] transform translate-x-[-50%] ${disabledCursor}`}
-        ></div>
-      </DragableView>
+      <div className={`${getElementColor()} h-full w-full text-white text-xs 
+        px-2 flex justify-between items-center`}>
+        <span className="truncate">{element.name}</span>
+        <span className="text-xs opacity-75 whitespace-nowrap">
+          {((element.timeFrame.end - element.timeFrame.start) / 1000).toFixed(1)}s
+        </span>
+      </div>
 
-      <DragableView
-        className={disabled ? "cursor-no-drop" : "cursor-col-resize"}
-        value={element.timeFrame.start}
-        disabled={disabled}
-        style={{
-          width: `${
-            ((element.timeFrame.end - element.timeFrame.start) /
-              store.maxTime) *
-            100
-          }%`,
+      {/* Trim handles */}
+      <div className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-500"
+        onMouseDown={(e) => {
+          // Add drag logic for left trim
         }}
-        total={store.maxTime}
-        onChange={(value) => {
-          const { start, end } = element.timeFrame;
-          store.updateEditorElementTimeFrame(element, {
-            start: value,
-            end: value + (end - start),
-          });
+      />
+      <div className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-500"
+        onMouseDown={(e) => {
+          // Add drag logic for right trim
         }}
-      >
+      />
+
+      {(trimPreview.start !== undefined || trimPreview.end !== undefined) && (
         <div
-          className={`${bgColorOnSelected} h-full w-full text-white text-xs min-w-[0px] px-2 leading-[25px]`}
-        >
-          {element.name}
-        </div>
-      </DragableView>
-      <DragableView
-        className="z-10"
-        disabled={disabled}
-        value={element.timeFrame.end}
-        total={store.maxTime}
-        onChange={(value) => {
-          store.updateEditorElementTimeFrame(element, {
-            end: value,
-          });
-        }}
-      >
-        <div
-          className={`bg-white border-2 border-blue-400 w-[10px] h-[10px] mt-[calc(25px/2)] translate-y-[-50%] transform translate-x-[-50%] ${disabledCursor}`}
-        ></div>
-      </DragableView>
+          className="absolute top-0 bottom-0 bg-blue-500 opacity-30"
+          style={{
+            left: `${((trimPreview.start ?? element.timeFrame.start) / store.maxTime) * 100}%`,
+            right: `${100 - ((trimPreview.end ?? element.timeFrame.end) / store.maxTime) * 100}%`
+          }}
+        />
+      )}
     </div>
   );
 });

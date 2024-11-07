@@ -4,6 +4,16 @@ export type UploadButtonProps = {
   accept: string;
 };
 export const UploadButton = (props: UploadButtonProps) => {
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      const fileNames = Array.from(files).map(file => file.name);
+      // Store file names in sessionStorage
+      window.sessionStorage.setItem('uploadedFileNames', JSON.stringify(fileNames));
+    }
+    props.onChange(event);
+  };
+
   return (
     <label htmlFor="fileInput" className={props.className}>
       <input
@@ -11,7 +21,8 @@ export const UploadButton = (props: UploadButtonProps) => {
         type="file"
         accept={props.accept}
         className="hidden"
-        onChange={props.onChange}
+        multiple
+        onChange={handleChange}
       />
       Upload
     </label>

@@ -6,7 +6,7 @@ import { observer } from "mobx-react";
 import { MdAdd } from "react-icons/md";
 
 type VideoResourceProps = {
-  video: string;
+  video: { url: string; fileName: string };
   index: number;
 };
 export const VideoResource = observer(
@@ -21,6 +21,9 @@ export const VideoResource = observer(
         <div className="bg-[rgba(0,0,0,.25)] text-white py-1 absolute text-base top-2 right-2">
           {formatedVideoLength}
         </div>
+        <div className="bg-[rgba(0,0,0,.25)] text-white py-1 absolute text-sm top-2 left-2 truncate max-w-[120px]">
+          {video.fileName}
+        </div>
         <button
           className="hover:bg-[#00a0f5] bg-[rgba(0,0,0,.25)] rounded z-10 text-white font-bold py-1 absolute text-lg bottom-2 right-2"
           onClick={() => store.addVideo(index)}
@@ -34,7 +37,7 @@ export const VideoResource = observer(
           }}
           ref={ref}
           className="max-h-[100px] max-w-[150px]"
-          src={video}
+          src={video.url}
           height={200}
           width={200}
           id={`video-${index}`}

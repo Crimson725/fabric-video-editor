@@ -1,6 +1,6 @@
 import React, { MouseEventHandler, useEffect, useRef } from "react";
 
-function DragableView(props: {
+interface DragableViewProps {
   children?: React.ReactNode;
   disabled?: boolean;
   className?: string;
@@ -8,7 +8,10 @@ function DragableView(props: {
   value: number;
   total: number;
   onChange: (value: number) => void;
-}) {
+  onDrag?: (value: number) => void;
+}
+
+function DragableView(props: DragableViewProps) {
   const ref = useRef<{
     div: HTMLDivElement | null;
     isDragging: boolean;
@@ -18,34 +21,38 @@ function DragableView(props: {
     isDragging: false,
     initialMouseX: 0,
   });
+  
   const { current: data } = ref;
+
   function calculateNewValue(mouseX: number): number {
     if (!data.div) return 0;
     const deltaX = mouseX - data.initialMouseX;
-    const deltaValue =
-      (deltaX / data.div.parentElement!.clientWidth) * props.total;
-    return props.value + deltaValue;
+    const deltaValue = (deltaX / data.div.parentElement!.clientWidth) * props.total;
+    return Math.max(0, Math.min(props.total, props.value + deltaValue));
   }
 
   const handleMouseDown: MouseEventHandler<HTMLDivElement> = (event) => {
-    if (!data.div) return;
-    if (props.disabled) return;
+    if (!data.div || props.disabled) return;
     data.isDragging = true;
     data.initialMouseX = event.clientX;
+    event.stopPropagation();
   };
+
   const handleMouseMove: MouseEventHandler<HTMLDivElement> = (event) => {
-    if (!data.div) return;
-    if (!data.isDragging) return;
-    data.div.style.left = `${
-      (calculateNewValue(event.clientX) / props.total) * 100
-    }%`;
+    if (!data.div || !data.isDragging) return;
+    const newValue = calculateNewValue(event.clientX);
+    
+    if (props.onDrag) {
+      props.onDrag(newValue);
+    }
+    
+    data.div.style.left = `${(newValue / props.total) * 100}%`;
     event.stopPropagation();
     event.preventDefault();
   };
 
   const handleMouseUp: MouseEventHandler<HTMLDivElement> = (event) => {
-    if (!data.div) return;
-    if (!data.isDragging) return;
+    if (!data.div || !data.isDragging) return;
     data.isDragging = false;
     props.onChange(calculateNewValue(event.clientX));
     event.stopPropagation();
@@ -59,7 +66,7 @@ function DragableView(props: {
       window.removeEventListener("mouseup", handleMouseUp as any);
       window.removeEventListener("mousemove", handleMouseMove as any);
     };
-  }, [handleMouseUp, handleMouseMove]);
+  }, [handleMouseUp, handleMouseMove,handleMouseDown]);
 
   return (
     <div

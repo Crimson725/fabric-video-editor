@@ -1,60 +1,56 @@
 "use client";
-
+import React from "react";
 import { StoreContext } from "@/store";
-import { formatTimeToMinSecMili } from "@/utils";
-import { observer } from "mobx-react-lite";
-import { useContext } from "react";
-import { MdPlayArrow, MdPause } from "react-icons/md";
-import { ScaleRangeInput } from "./ScaleRangeInput";
+import { observer } from "mobx-react";
+import { MdPlayArrow, MdPause, MdContentCut, MdUndo } from 'react-icons/md';
 
-const MARKINGS = [
-  {
-    interval: 5000,
-    color: 'black',
-    size: 16,
-    width: 1
-  },
-  {
-    interval: 1000,
-    color: 'black',
-    size: 8,
-    width: 1
-  }
-];
+export const SeekPlayer = observer(() => {
+  const store = React.useContext(StoreContext);
+  const selectedElement = store.selectedElement;
 
-export type SeekPlayerProps = {};
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const milliseconds = Math.floor((ms % 1000) / 10);
+    
+    // Format: MM:SS.mm
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(2, '0')}`;
+  };
 
-
-export const SeekPlayer = observer((_props: SeekPlayerProps) => {
-  const store = useContext(StoreContext);
-  const Icon = store.playing ? MdPause : MdPlayArrow;
-  const formattedTime = formatTimeToMinSecMili(store.currentTimeInMs);
-  const formattedMaxTime = formatTimeToMinSecMili(store.maxTime);
   return (
-    <div className="seek-player flex flex-col">
-      <div className="flex flex-row items-center px-2">
-        <button
-          className="w-[80px] rounded  px-2 py-2"
-          onClick={() => {
-            store.setPlaying(!store.playing);
-          }}
-        >
-          <Icon size="40"></Icon>
-        </button>
-        <span className="font-mono">{formattedTime}</span>
-        <div className="w-[1px] h-[25px] bg-slate-300 mx-[10px]"></div>
-        <span className="font-mono">{formattedMaxTime}</span>
-      </div>
-      <ScaleRangeInput
-        max={store.maxTime}
-        value={store.currentTimeInMs}
-        onChange={(value) => {
-          store.handleSeek(value);
+    <div className="flex items-center gap-2 p-2 bg-slate-800">
+      <button
+        className="p-2 rounded bg-blue-500 hover:bg-blue-600 text-white"
+        onClick={() => {
+          store.setPlaying(!store.playing);
         }}
-        height={30}
-        markings={MARKINGS}
-        backgroundColor="white"
-      />
+      >
+        {store.playing ? <MdPause size={24} /> : <MdPlayArrow size={24} />}
+      </button>
+
+      {selectedElement && selectedElement.type === "video" && (
+        <div className="flex gap-1">
+          <button
+            className="p-2 rounded bg-blue-500 hover:bg-blue-600 text-white"
+            onClick={() => store.splitElementAtTime(selectedElement.id, store.currentTimeInMs)}
+            title="Split at playhead"
+          >
+            <MdContentCut size={20} />
+          </button>
+          <button
+            className="p-2 rounded bg-blue-500 hover:bg-blue-600 text-white"
+            onClick={() => store.uncutElement(selectedElement.id)}
+            title="Reset trim"
+          >
+            <MdUndo size={20} />
+          </button>
+        </div>
+      )}
+
+      <div className="text-white ml-2 font-mono">
+        {formatTime(store.currentTimeInMs)} / {formatTime(store.maxTime)}
+      </div>
     </div>
   );
 });

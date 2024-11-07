@@ -11,7 +11,7 @@ export type EditorElementBase<T extends string, P> = {
 };
 export type VideoEditorElement = EditorElementBase<
   "video",
-  { src: string; elementId: string; imageObject?: fabric.Image, effect: Effect }
+  { src: string; elementId: string; imageObject?: fabric.Image, effect: Effect, keyframes?: number[] }
 >;
 export type ImageEditorElement = EditorElementBase<
   "image",
@@ -108,3 +108,9 @@ export type MenuOption =
   | "Animation"
   | "Effect"
   | "Fill";
+
+export type VideoGroup={
+  id:string;
+  name:string;
+  videos:string[];
+}

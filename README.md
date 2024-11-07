@@ -1,34 +1,7 @@
-The app's live link to test in the browser is: https://fabric-video-editor.vercel.app/
-
-Do you need a custom editor? Get in touch with me at [Linked In](https://www.linkedin.com/in/amit-digga/)
-Other: [Website](https://www.amitdigga.dev/) | [Twitter](https://twitter.com/AmitDigga) |
-
-This was a hobby project. I will add support for other features in the future. Looking for backend/ffmpeg developers to help me generate video from Canvas in the backend.
 
 # Fabric Video Editor
 
 Fabric Video Editor is a video editor that runs in the browser. It is built with fabric.js, Next.js (a React framework), Tailwindcss, Mobx, and typescript.
-
-
-## Samples
-
-### 3. New Updated UI
-<img width="1727" alt="Screenshot 2024-02-22 at 12 09 30 PM" src="https://github.com/AmitDigga/fabric-video-editor/assets/7884106/7246996c-259c-4730-ba19-af060cc94018">
-
-### 2. The editor supports Animations and Effects
-
-https://github.com/AmitDigga/fabric-video-editor/assets/7884106/61c32181-59c2-427c-b816-c51b40bf8bcc
-
-### 1. Basic Working
-
-https://github.com/AmitDigga/fabric-video-editor/assets/7884106/89674396-a0d3-45a3-b1cd-51097142b8f8
-
-
-
-## Tech Explanation
-
-todo
-
 
 ## Features
 
@@ -43,6 +16,8 @@ todo
 - [x] Export Video with Audio
 - [x] Animations
 - [x] Filters
+- [ ] Automatic Clips sorting (for example, if some clips are about the same topic, they should be sorted together, automatically name this group of clips with their similar topics. Now, suggest only sort based on the name of the clips since there is no model to extaction the topic of the clips. But in the future, we will be able to extract then sort)
+
 
 ## Main Issues
 
